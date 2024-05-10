@@ -4,6 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from tqdm.auto import tqdm
 import pandas as pd
+from scipy.io import wavfile
 
 load_dotenv()
 
@@ -71,10 +72,22 @@ def fetch_data_csj(csj_char_path: Path, csj_wav_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    CSJ_CHAR_PATH = os.environ.get("CSJ_CHAR_PATH")
-    CSJ_WAV_PATH = os.environ.get("CSJ_WAV_PATH")
+    csj_csv_set = {
+        "text.eval1.char.csv",
+        "text.eval2.char.csv",
+        "text.eval3.char.csv",
+        "text.train.char.csv",
+        "vocab.char",
+    }
 
-    assert CSJ_CHAR_PATH is not None
-    assert CSJ_WAV_PATH is not None
+    # CSJ のデータがすべて揃っているか確認
+    if not all((csj_dir / filename).exists() for filename in csj_csv_set):
+        CSJ_CHAR_PATH = os.environ.get("CSJ_CHAR_PATH")
+        CSJ_WAV_PATH = os.environ.get("CSJ_WAV_PATH")
 
-    fetch_data_csj(csj_char_path=Path(CSJ_CHAR_PATH), csj_wav_path=Path(CSJ_WAV_PATH))
+        assert CSJ_CHAR_PATH is not None
+        assert CSJ_WAV_PATH is not None
+
+        fetch_data_csj(
+            csj_char_path=Path(CSJ_CHAR_PATH), csj_wav_path=Path(CSJ_WAV_PATH)
+        )
