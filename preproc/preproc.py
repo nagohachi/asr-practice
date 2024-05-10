@@ -1,15 +1,15 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torchaudio
 from dotenv import load_dotenv
-from multiprocessing import Pool
 from scipy.io import wavfile
 from torch import Tensor
-import torchaudio
 from tqdm.auto import tqdm
-from concurrent.futures import ThreadPoolExecutor
 
 load_dotenv()
 
