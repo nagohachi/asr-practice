@@ -9,6 +9,8 @@ load_dotenv()
 
 root_dir = Path.cwd().parent
 input_dir = root_dir / "input"
+
+# CSJ
 csj_dir = input_dir / "csj"
 csj_train_dir = csj_dir / "train"
 csj_eval_dir = csj_dir / "eval"
