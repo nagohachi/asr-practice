@@ -19,7 +19,7 @@ csj_eval_dir.mkdir(parents=True, exist_ok=True)
 
 
 def fetch_data_csj(csj_char_path: Path, csj_wav_path: Path) -> None:
-    """加工済みの CSJ から
+    """加工済みの CSJ データsから train data, test data の CSV を作る
 
     Args:
         csj_char_path (Path): _description_
