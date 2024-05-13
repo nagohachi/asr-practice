@@ -13,7 +13,7 @@ root_dir = Path.cwd().parent
 input_dir = root_dir / "input"
 csj_dir = input_dir / "csj"
 
-
+# train data
 df = pd.read_csv(csj_dir / "text.train.char.csv")
 
 
@@ -78,6 +78,7 @@ class CSJTrainData:
             spec = torch.Tensor(
                 np.load(self.spec_npy_path_list[index], allow_pickle=True)
             )
+            spec = (spec - spec.mean()) / spec.std()
             spec_length = spec.size(0)
             target = torch.Tensor(
                 [vocab_dict[char] for char in self.target_list[index].split()]
@@ -102,7 +103,7 @@ class CSJTrainData:
 input_features_size = 80
 # vocab_size
 hidden_features_size = len(vocab_dict)
-batch_size = 5
+batch_size = 10
 
 
 # ## Model
@@ -115,19 +116,22 @@ class LSTMModel(nn.Module):
         n_output_features: int,
         n_hidden_features: int,
         n_layers: int = 1,
+        bidirectional: bool = False,
     ) -> None:
         super().__init__()
         self.rnn = nn.LSTM(
             input_size=n_input_features,
             hidden_size=n_hidden_features,
             num_layers=n_layers,
+            bidirectional=bidirectional,
             batch_first=True,
         )
 
         self.fc = nn.Linear(n_hidden_features, n_output_features)
 
-        self.h_0 = torch.zeros(n_layers, batch_size, n_hidden_features).to("cuda")
-        self.c_0 = torch.zeros(n_layers, batch_size, n_hidden_features).to("cuda")
+        hidden_dim = n_layers * (2 if bidirectional else 1)
+        self.h_0 = torch.zeros(hidden_dim, batch_size, n_hidden_features).to("cuda")
+        self.c_0 = torch.zeros(hidden_dim, batch_size, n_hidden_features).to("cuda")
 
     def forward(self, x: nn.utils.rnn.PackedSequence) -> nn.utils.rnn.PackedSequence:
         # x: (batch_size, seq_len, input_features)
@@ -137,17 +141,18 @@ class LSTMModel(nn.Module):
 
 
 # ## Training
-dataset = CSJTrainData(train_df=df, batch_size=batch_size)
+dataset = CSJTrainData(train_df=df, batch_size=batch_size, use_samples=10000)
 
 rnn = LSTMModel(
     n_input_features=input_features_size,
     n_output_features=len(vocab),
     n_hidden_features=len(vocab),
+    bidirectional=True,
 ).to("cuda")
 
 
-loss_fn = nn.CTCLoss(reduction="sum")
-optimizer = torch.optim.Adam(rnn.parameters(), lr=0.0001)
+loss_fn = nn.CTCLoss(reduction="mean")
+optimizer = torch.optim.Adam(rnn.parameters(), lr=1e-5)
 
 
 train_loss_list = []
@@ -158,42 +163,73 @@ def train_loop(
     model: nn.Module,
     loss_fn: nn.Module,
     optimizer: torch.optim.Optimizer,
+    n_epochs: int = 1,
+    n_mean_loss: int = 1,
 ) -> None:
+    training_data = []
+    for X, y, X_length, y_length in dataset:
+        training_data.append((X, y, X_length, y_length))
+
+    # shuffle
+    random.seed(0)
+    random.shuffle(training_data)
+
     model.train()
+    train_loss_list_tmp: list[float] = []
+    for epoch in range(n_epochs):
+        for batch, (X, y, X_length, y_length) in enumerate(tqdm(training_data)):
+            # X, y を pad する
+            X_pad = nn.utils.rnn.pad_sequence(X, batch_first=True)
+            y_pad = nn.utils.rnn.pad_sequence(y, batch_first=True)
+            # X を pack する
+            X_packed = nn.utils.rnn.pack_padded_sequence(
+                input=X_pad,
+                lengths=torch.Tensor(X_length),
+                batch_first=True,
+                enforce_sorted=False,
+            ).to("cuda")
 
-    for batch, (X, y, X_length, y_length) in tqdm(
-        enumerate(dataset), total=len(dataset)
-    ):
-        # X, y を pad する
-        X = nn.utils.rnn.pad_sequence(X, batch_first=True)
-        y = nn.utils.rnn.pad_sequence(y, batch_first=True)
-        # X, y を pack する
-        X_packed = nn.utils.rnn.pack_padded_sequence(
-            input=X,
-            lengths=torch.Tensor(X_length),
-            batch_first=True,
-            enforce_sorted=False,
-        ).to("cuda")
+            pred = model.forward(X_packed)
+            pred, _ = nn.utils.rnn.pad_packed_sequence(pred, batch_first=True)
+            pred = pred.log_softmax(2)
 
-        pred = model.forward(X_packed)
-        pred, _ = nn.utils.rnn.pad_packed_sequence(pred, batch_first=True)
+            # batch_first の状態から、CTCLoss に入力できるように変形する
+            pred = pred.permute(1, 0, 2)
 
-        pred = pred.log_softmax(2)
-        pred = pred.permute(1, 0, 2)
+            loss = loss_fn(pred, y_pad, X_length, y_length)
 
-        loss = loss_fn(pred, y, X_length, y_length)
+            loss.backward()
 
-        loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
 
-        optimizer.step()
-        optimizer.zero_grad()
+            if batch > 0 and batch % n_mean_loss == 0:
+                train_loss_list.append(
+                    sum(train_loss_list_tmp) / len(train_loss_list_tmp)
+                )
 
-        train_loss_list.append(loss.item())
-        print(loss.item())
+                print(f"loss: {sum(train_loss_list_tmp) / len(train_loss_list_tmp)}")
+                train_loss_list_tmp = []
+
+            train_loss_list_tmp.append(loss.item())
+
+        if train_loss_list_tmp:
+            train_loss_list.append(sum(train_loss_list_tmp) / len(train_loss_list_tmp))
+            print(f"loss: {sum(train_loss_list_tmp) / len(train_loss_list_tmp)}")
+            train_loss_list_tmp = []
 
 
-train_loop(dataset, rnn, loss_fn, optimizer)
+train_loop(
+    dataset=dataset,
+    model=rnn,
+    loss_fn=loss_fn,
+    optimizer=optimizer,
+    n_epochs=2,
+    n_mean_loss=20,
+)
 
 
 plt.plot(train_loss_list)
+plt.xlabel("batch")
+plt.ylabel("loss")
 plt.savefig("train_loss.png")
