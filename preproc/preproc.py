@@ -81,6 +81,11 @@ def fetch_data_csj(csj_char_path: Path, csj_wav_path: Path) -> None:
 
 
 def convert_file_to_npy(row_output_dir_tuple: tuple[pd.Series, Path]) -> None:
+    """生の wav ファイルを numpy 配列に変換して保存する
+
+    Args:
+        row_output_dir_tuple (tuple[pd.Series, Path]): 訓練データ CSV, 保存先のディレクトリ
+    """
     row, output_dir = row_output_dir_tuple
     source_path: Path = Path(row["source_path"])
 
@@ -102,6 +107,7 @@ def convert_wav_to_npy(df: pd.DataFrame, output_dir: Path) -> None:
         df (pd.DataFrame): CSJ のデータが入った DataFrame
         output_dir (Path): 保存先のディレクトリ
     """
+    # よくわからんけど謎の並列実行してみる (1)
     with ThreadPoolExecutor(max_workers=NUM_THREADS_FOR_CONVERSOIN) as executor:
         list(
             tqdm(
@@ -115,6 +121,11 @@ def convert_wav_to_npy(df: pd.DataFrame, output_dir: Path) -> None:
 
 
 def convert_file_to_spectrogram(row_output_dir_tuple: tuple[pd.Series, Path]) -> None:
+    """生の wav ファイルを fbank に変換して保存する
+
+    Args:
+        row_output_dir_tuple (tuple[pd.Series, Path]): 訓練データ CSV, 保存先のディレクトリ
+    """
     row, output_dir = row_output_dir_tuple
     source_path: Path = Path(row["source_path"])
 
@@ -126,6 +137,7 @@ def convert_file_to_spectrogram(row_output_dir_tuple: tuple[pd.Series, Path]) ->
     rate, data = wavfile.read(source_path)
 
     # waveform (Tensor) – Tensor of audio of size (c, n) where c is in the range [0,2)
+    # モノラルなので c=1
     waveform = Tensor(data).unsqueeze(0)
     spectrogram = torchaudio.compliance.kaldi.fbank(waveform=waveform, num_mel_bins=80)
 
@@ -140,6 +152,7 @@ def convert_wav_to_spectrogram(df: pd.DataFrame, output_dir: Path) -> None:
         npy_path (Path): 音声ファイルのパス
         output_dir (Path): 保存先のディレクトリ
     """
+    # よくわからんけど謎の並列実行してみる (2)
     with Pool(processes=NUM_PROCESS_FOR_CONVERSION) as p:
         _ = list(
             tqdm(
@@ -150,6 +163,16 @@ def convert_wav_to_spectrogram(df: pd.DataFrame, output_dir: Path) -> None:
                 total=df.shape[0],
             )
         )
+
+
+def add_raw_npy_and_spec_npy_dir(df: pd.DataFrame) -> pd.DataFrame:
+    df["raw_npy_path"] = df["source_path"].apply(
+        lambda x: str(csj_raw_npy_dir / f"{Path(x).stem}.npy")
+    )
+    df["spec_npy_path"] = df["source_path"].apply(
+        lambda x: str(csj_spec_npy_dir / f"{Path(x).stem}.npy")
+    )
+    return df
 
 
 if __name__ == "__main__":
@@ -186,3 +209,8 @@ if __name__ == "__main__":
         for csv_file in csj_dir.glob("*.csv"):
             df = pd.read_csv(csv_file)
             convert_wav_to_spectrogram(df, csj_spec_npy_dir)
+
+    for csv_file in csj_dir.glob("*.csv"):
+        df = pd.read_csv(csv_file)
+        df = add_raw_npy_and_spec_npy_dir(df)
+        df.to_csv(csv_file, index=False)
