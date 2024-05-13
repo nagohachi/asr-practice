@@ -78,7 +78,7 @@ class CSJTrainData:
             spec = torch.Tensor(
                 np.load(self.spec_npy_path_list[index], allow_pickle=True)
             )
-            spec = (spec - spec.mean()) / spec.std()
+            spec = (spec - spec.mean(dim=0)) / spec.std(dim=0)
             spec_length = spec.size(0)
             target = torch.Tensor(
                 [vocab_dict[char] for char in self.target_list[index].split()]
@@ -224,8 +224,8 @@ train_loop(
     model=rnn,
     loss_fn=loss_fn,
     optimizer=optimizer,
-    n_epochs=2,
-    n_mean_loss=20,
+    n_epochs=30,
+    n_mean_loss=3,
 )
 
 
