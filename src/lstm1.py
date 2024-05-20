@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 import torch
+import wandb
 from torch import nn
 from tqdm.auto import tqdm
-import wandb
 
 root_dir = Path.cwd().parent
 input_dir = root_dir / "input"
@@ -152,6 +152,7 @@ rnn = LSTMModel(
     n_hidden_features=len(vocab),
     bidirectional=True,
 ).to("cuda")
+print(rnn)
 
 
 loss_fn = nn.CTCLoss(reduction="mean")
@@ -172,7 +173,8 @@ def train_loop(
     n_mean_loss: int = 1,
 ) -> None:
     training_data = []
-    for X, y, X_length, y_length in dataset:
+    print("Start preparing training data...")
+    for X, y, X_length, y_length in tqdm(dataset, total=len(dataset)):
         training_data.append((X, y, X_length, y_length))
 
     # shuffle
