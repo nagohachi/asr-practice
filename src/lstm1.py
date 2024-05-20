@@ -4,29 +4,37 @@ from typing import Iterator
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+import polars as pl
 import torch
 from torch import nn
 from tqdm.auto import tqdm
+import wandb
 
 root_dir = Path.cwd().parent
 input_dir = root_dir / "input"
 csj_dir = input_dir / "csj"
 
 # train data
-df = pd.read_csv(csj_dir / "text.train.char.csv")
+print("Loading data...")
+df = pl.read_csv(csj_dir / "text.train.char.csv")
 
 
 vocab_path = Path(csj_dir / "vocab.char")
-vocab_df = pd.read_csv(vocab_path, header=None)
-vocab = vocab_df[0].tolist()
-vocab_dict = {char: i for i, char in enumerate(vocab)}
+vocab = []
+with open(vocab_path, "r") as f:
+    for line in f:
+        vocab.append(line.strip())
+
+# <blank> トークンを追加
+vocab.append("<blank>")
+vocab_to_id_dict = {char: i for i, char in enumerate(vocab)}
+id_to_vocab_dict = {i: char for i, char in enumerate(vocab)}
 
 
 class CSJTrainData:
     def __init__(
         self,
-        train_df: pd.DataFrame,
+        train_df: pl.DataFrame,
         use_samples: int = 5000,
         max_spec_len: int = 500,
         batch_size: int = 4,
@@ -34,23 +42,17 @@ class CSJTrainData:
         # 最初の use_samples 個だけ使う
         self.train_df = train_df[:use_samples]
         # spectrogram の長さに関してソートする
+        print("Start sorting...")
         self.__sort_samples()
-
-        self.train_df = self.train_df[
-            self.train_df["spec_length"] <= max_spec_len
-        ].reset_index(drop=True)
+        print("Start filtering...")
+        self.train_df = self.train_df.filter(pl.col("spec_length") <= max_spec_len)
         print(f"Using {len(self.train_df)} samples")
         self.spec_npy_path_list = self.train_df["spec_npy_path"].to_list()
         self.target_list = self.train_df["target"].to_list()
         self.batch_size = batch_size
 
     def __sort_samples(self) -> None:
-        self.train_df["spec_length"] = self.train_df["spec_npy_path"].apply(
-            lambda x: np.load(x, allow_pickle=True).shape[0]
-        )
-        self.train_df = self.train_df.sort_values(by="spec_length").reset_index(
-            drop=True
-        )
+        self.train_df = self.train_df.sort(by="spec_length")
 
     def __len__(self) -> int:
         return len(self.spec_npy_path_list) // self.batch_size
@@ -81,7 +83,7 @@ class CSJTrainData:
             spec = (spec - spec.mean(dim=0)) / spec.std(dim=0)
             spec_length = spec.size(0)
             target = torch.Tensor(
-                [vocab_dict[char] for char in self.target_list[index].split()]
+                [vocab_to_id_dict[char] for char in self.target_list[index].split()]
             )
             target_length = target.size(0)
             specs.append(spec)
@@ -102,7 +104,7 @@ class CSJTrainData:
 # num_mel_bins
 input_features_size = 80
 # vocab_size
-hidden_features_size = len(vocab_dict)
+hidden_features_size = len(vocab_to_id_dict)
 batch_size = 10
 
 
@@ -141,7 +143,8 @@ class LSTMModel(nn.Module):
 
 
 # ## Training
-dataset = CSJTrainData(train_df=df, batch_size=batch_size, use_samples=10000)
+
+dataset = CSJTrainData(train_df=df, batch_size=batch_size, use_samples=100000)
 
 rnn = LSTMModel(
     n_input_features=input_features_size,
@@ -155,7 +158,9 @@ loss_fn = nn.CTCLoss(reduction="mean")
 optimizer = torch.optim.Adam(rnn.parameters(), lr=1e-5)
 
 
-train_loss_list = []
+train_loss_list: list[float] = []
+
+wandb.init(project="asr-practice", name="lstm2")
 
 
 def train_loop(
@@ -177,10 +182,16 @@ def train_loop(
     model.train()
     train_loss_list_tmp: list[float] = []
     for epoch in range(n_epochs):
+        train_loss_list_by_epoch: list[float] = []
+
         for batch, (X, y, X_length, y_length) in enumerate(tqdm(training_data)):
             # X, y を pad する
-            X_pad = nn.utils.rnn.pad_sequence(X, batch_first=True)
-            y_pad = nn.utils.rnn.pad_sequence(y, batch_first=True)
+            X_pad = nn.utils.rnn.pad_sequence(
+                X, batch_first=True, padding_value=vocab_to_id_dict["<blank>"]
+            )
+            y_pad = nn.utils.rnn.pad_sequence(
+                y, batch_first=True, padding_value=vocab_to_id_dict["<blank>"]
+            )
             # X を pack する
             X_packed = nn.utils.rnn.pack_padded_sequence(
                 input=X_pad,
@@ -203,20 +214,32 @@ def train_loop(
             optimizer.step()
             optimizer.zero_grad()
 
-            if batch > 0 and batch % n_mean_loss == 0:
-                train_loss_list.append(
-                    sum(train_loss_list_tmp) / len(train_loss_list_tmp)
-                )
+            wandb.log({"train_loss": loss.item()})
+            train_loss_list_by_epoch.append(loss.item())
 
-                print(f"loss: {sum(train_loss_list_tmp) / len(train_loss_list_tmp)}")
+            if batch > 0 and batch % n_mean_loss == 0:
+                mean_loss = sum(train_loss_list_tmp) / len(train_loss_list_tmp)
+                train_loss_list.append(mean_loss)
+                print(f"loss: {mean_loss}")
+                wandb.log({"train_mean_loss": mean_loss})
                 train_loss_list_tmp = []
 
             train_loss_list_tmp.append(loss.item())
 
         if train_loss_list_tmp:
-            train_loss_list.append(sum(train_loss_list_tmp) / len(train_loss_list_tmp))
-            print(f"loss: {sum(train_loss_list_tmp) / len(train_loss_list_tmp)}")
+            mean_loss = sum(train_loss_list_tmp) / len(train_loss_list_tmp)
+            train_loss_list.append(mean_loss)
+            print(f"loss: {mean_loss}")
+            wandb.log({"train_mean_loss": mean_loss})
             train_loss_list_tmp = []
+
+        epoch_mean_loss = sum(train_loss_list_by_epoch) / len(train_loss_list_by_epoch)
+        wandb.log({"train_epoch_loss": epoch_mean_loss})
+
+        # save model
+        model_path = Path.cwd().parent / "models"
+        model_path.mkdir(exist_ok=True)
+        torch.save(model.state_dict(), model_path / f"lstm1_epoch{epoch}.pth")
 
 
 train_loop(
@@ -224,8 +247,8 @@ train_loop(
     model=rnn,
     loss_fn=loss_fn,
     optimizer=optimizer,
-    n_epochs=30,
-    n_mean_loss=3,
+    n_epochs=5,
+    n_mean_loss=30,
 )
 
 
