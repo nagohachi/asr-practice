@@ -5,12 +5,15 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from pandarallel import pandarallel
 import torchaudio
 from dotenv import load_dotenv
 from scipy.io import wavfile
 from torch import Tensor
 from tqdm.auto import tqdm
 
+tqdm.pandas()
+pandarallel.initialize(nb_workers=16, progress_bar=True)
 load_dotenv()
 
 root_dir = Path.cwd().parent
@@ -175,6 +178,14 @@ def add_raw_npy_and_spec_npy_dir(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_spec_length(df: pd.DataFrame) -> pd.DataFrame:
+    def get_spec_length(x: str) -> int:
+        return np.load(x, allow_pickle=True).shape[0]
+
+    df["spec_length"] = df["spec_npy_path"].parallel_apply(get_spec_length)
+    return df
+
+
 if __name__ == "__main__":
     csj_csv_set = {
         "text.eval1.char.csv",
@@ -213,4 +224,9 @@ if __name__ == "__main__":
     for csv_file in csj_dir.glob("*.csv"):
         df = pd.read_csv(csv_file)
         df = add_raw_npy_and_spec_npy_dir(df)
+        df.to_csv(csv_file, index=False)
+
+    for csv_file in csj_dir.glob("*.csv"):
+        df = pd.read_csv(csv_file)
+        df = add_spec_length(df)
         df.to_csv(csv_file, index=False)
