@@ -13,6 +13,8 @@ from tqdm.auto import tqdm
 root_dir = Path.cwd().parent
 input_dir = root_dir / "input"
 csj_dir = input_dir / "csj"
+model_dir = Path.cwd().parent / "models"
+
 
 # train data
 print("Loading data...")
@@ -27,8 +29,15 @@ with open(vocab_path, "r") as f:
 
 # <blank> トークンを追加
 vocab.append("<blank>")
+
+print(f"Using {len(vocab)} characters")
+
 vocab_to_id_dict = {char: i for i, char in enumerate(vocab)}
 id_to_vocab_dict = {i: char for i, char in enumerate(vocab)}
+
+sos_token_id = vocab_to_id_dict["<sos>"]
+eos_token_id = vocab_to_id_dict["<eos>"]
+blank_token_id = vocab_to_id_dict["<blank>"]
 
 
 class CSJTrainData:
@@ -82,8 +91,12 @@ class CSJTrainData:
             )
             spec = (spec - spec.mean(dim=0)) / spec.std(dim=0)
             spec_length = spec.size(0)
+
+            # ターゲットの先頭に <sos> トークン、末尾に <eos> トークンを追加
             target = torch.Tensor(
-                [vocab_to_id_dict[char] for char in self.target_list[index].split()]
+                [sos_token_id]
+                + [vocab_to_id_dict[char] for char in self.target_list[index].split()]
+                + [eos_token_id]
             )
             target_length = target.size(0)
             specs.append(spec)
@@ -144,7 +157,7 @@ class LSTMModel(nn.Module):
 
 # ## Training
 
-dataset = CSJTrainData(train_df=df, batch_size=batch_size, use_samples=100000)
+dataset = CSJTrainData(train_df=df, batch_size=batch_size, use_samples=10000)
 
 rnn = LSTMModel(
     n_input_features=input_features_size,
@@ -152,6 +165,7 @@ rnn = LSTMModel(
     n_hidden_features=len(vocab),
     bidirectional=True,
 ).to("cuda")
+
 print(rnn)
 
 
@@ -161,7 +175,7 @@ optimizer = torch.optim.Adam(rnn.parameters(), lr=1e-5)
 
 train_loss_list: list[float] = []
 
-wandb.init(project="asr-practice", name="lstm2")
+wandb.init(project="asr-practice", name="lstm1")
 
 
 def train_loop(
@@ -170,8 +184,26 @@ def train_loop(
     loss_fn: nn.Module,
     optimizer: torch.optim.Optimizer,
     n_epochs: int = 1,
-    n_mean_loss: int = 1,
 ) -> None:
+    def print_decoded_pred(pred: torch.Tensor) -> None:
+        # pred: (batch_size, seq_len, vocab_size)
+        # bidirectional なので、出力を分割して平均する
+        pred1, pred2 = torch.chunk(input=pred.softmax(dim=2), chunks=2, dim=2)
+        pred_mean = (pred1 + pred2) / 2
+        # pred_argmax: (batch_size, seq_len)
+        pred_argmax = pred_mean.argmax(dim=2).cpu().numpy()
+
+        for i in range(pred_argmax.shape[0]):
+            pred_str = "".join(
+                [
+                    id_to_vocab_dict[pred_argmax[i, j]]
+                    for j in range(pred_argmax.shape[1])
+                    if j != blank_token_id
+                    and pred_argmax[i, j] != pred_argmax[i, j - 1]
+                ]
+            )
+            print(pred_str)
+
     training_data = []
     print("Start preparing training data...")
     for X, y, X_length, y_length in tqdm(dataset, total=len(dataset)):
@@ -182,17 +214,16 @@ def train_loop(
     random.shuffle(training_data)
 
     model.train()
-    train_loss_list_tmp: list[float] = []
     for epoch in range(n_epochs):
         train_loss_list_by_epoch: list[float] = []
 
         for batch, (X, y, X_length, y_length) in enumerate(tqdm(training_data)):
             # X, y を pad する
             X_pad = nn.utils.rnn.pad_sequence(
-                X, batch_first=True, padding_value=vocab_to_id_dict["<blank>"]
+                X, batch_first=True, padding_value=blank_token_id
             )
             y_pad = nn.utils.rnn.pad_sequence(
-                y, batch_first=True, padding_value=vocab_to_id_dict["<blank>"]
+                y, batch_first=True, padding_value=blank_token_id
             )
             # X を pack する
             X_packed = nn.utils.rnn.pack_padded_sequence(
@@ -203,14 +234,18 @@ def train_loop(
             ).to("cuda")
 
             pred = model.forward(X_packed)
-            pred, _ = nn.utils.rnn.pad_packed_sequence(pred, batch_first=True)
-            pred = pred.log_softmax(2)
+            pred, _ = nn.utils.rnn.pad_packed_sequence(
+                pred, batch_first=True, padding_value=blank_token_id
+            )
+            # 試しに出力してみる
+            print_decoded_pred(pred)
+
+            pred = pred.log_softmax(dim=2)
 
             # batch_first の状態から、CTCLoss に入力できるように変形する
             pred = pred.permute(1, 0, 2)
 
             loss = loss_fn(pred, y_pad, X_length, y_length)
-
             loss.backward()
 
             optimizer.step()
@@ -219,29 +254,12 @@ def train_loop(
             wandb.log({"train_loss": loss.item()})
             train_loss_list_by_epoch.append(loss.item())
 
-            if batch > 0 and batch % n_mean_loss == 0:
-                mean_loss = sum(train_loss_list_tmp) / len(train_loss_list_tmp)
-                train_loss_list.append(mean_loss)
-                print(f"loss: {mean_loss}")
-                wandb.log({"train_mean_loss": mean_loss})
-                train_loss_list_tmp = []
-
-            train_loss_list_tmp.append(loss.item())
-
-        if train_loss_list_tmp:
-            mean_loss = sum(train_loss_list_tmp) / len(train_loss_list_tmp)
-            train_loss_list.append(mean_loss)
-            print(f"loss: {mean_loss}")
-            wandb.log({"train_mean_loss": mean_loss})
-            train_loss_list_tmp = []
-
         epoch_mean_loss = sum(train_loss_list_by_epoch) / len(train_loss_list_by_epoch)
         wandb.log({"train_epoch_loss": epoch_mean_loss})
 
         # save model
-        model_path = Path.cwd().parent / "models"
-        model_path.mkdir(exist_ok=True)
-        torch.save(model.state_dict(), model_path / f"lstm1_epoch{epoch}.pth")
+        model_dir.mkdir(exist_ok=True)
+        torch.save(model.state_dict(), model_dir / f"lstm1_epoch{epoch}.pth")
 
 
 train_loop(
@@ -250,7 +268,6 @@ train_loop(
     loss_fn=loss_fn,
     optimizer=optimizer,
     n_epochs=5,
-    n_mean_loss=30,
 )
 
 
