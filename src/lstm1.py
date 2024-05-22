@@ -185,7 +185,22 @@ def train_loop(
     optimizer: torch.optim.Optimizer,
     n_epochs: int = 1,
 ) -> None:
+    """訓練を行うための関数
+
+    Args:
+        dataset (CSJTrainData): 訓練データセット
+        model (nn.Module): nn.LSTM のモデル
+        loss_fn (nn.Module): 損失関数
+        optimizer (torch.optim.Optimizer): オプティマイザ
+        n_epochs (int, optional): 訓練で用いるエポック数. Defaults to 1.
+    """
+
     def print_decoded_pred(pred: torch.Tensor) -> None:
+        """モデルの出力をデコードして表示する
+
+        Args:
+            pred (torch.Tensor): モデルの出力
+        """
         # pred: (batch_size, seq_len, vocab_size)
         # bidirectional なので、出力を分割して平均する
         pred1, pred2 = torch.chunk(input=pred.softmax(dim=2), chunks=2, dim=2)
