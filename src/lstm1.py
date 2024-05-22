@@ -192,16 +192,18 @@ def train_loop(
         pred_mean = (pred1 + pred2) / 2
         # pred_argmax: (batch_size, seq_len)
         pred_argmax = pred_mean.argmax(dim=2).cpu().numpy()
-
+        # バッチ内の i 番目の出力について
         for i in range(pred_argmax.shape[0]):
-            pred_str = "".join(
-                [
-                    id_to_vocab_dict[pred_argmax[i, j]]
-                    for j in range(pred_argmax.shape[1])
-                    if j != blank_token_id
-                    and pred_argmax[i, j] != pred_argmax[i, j - 1]
-                ]
-            )
+            pred_str = ""
+            # i 番目の出力における j 番目の文字について
+            for j in range(pred_argmax.shape[1]):
+                # blank トークンは無視
+                if pred_argmax[i, j] == blank_token_id:
+                    continue
+                # 連続する同じ文字は無視
+                if j > 0 and pred_argmax[i, j] == pred_argmax[i, j - 1]:
+                    continue
+                pred_str += id_to_vocab_dict[pred_argmax[i, j]]
             print(pred_str)
 
     training_data = []
