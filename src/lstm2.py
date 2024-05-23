@@ -164,11 +164,12 @@ class LSTMModel(nn.Module):
         x_tensor = self.fc(x_tensor)
         # x_tensor: (batch_size, seq_len, output_features)
 
+        # batch_first の状態から、CTCLoss に入力できるように変形する
+        x_tensor = x_tensor.permute(1, 0, 2)
+
         # log_softmax
         x_tensor = x_tensor.log_softmax(dim=2)
 
-        # batch_first の状態から、CTCLoss に入力できるように変形する
-        x_tensor = x_tensor.permute(1, 0, 2)
         # x_tensor: (seq_len, batch_size, output_features)
         return x_tensor
 
@@ -194,7 +195,7 @@ optimizer = torch.optim.Adam(rnn.parameters(), lr=1e-5)
 
 train_loss_list: list[float] = []
 
-wandb.init(project="asr-practice", name="lstm1")
+wandb.init(project="asr-practice", name="lstm2")
 
 
 def train_loop(
@@ -230,18 +231,20 @@ def train_loop(
         # 最も確率の高いトークンを取得
         pred_argmax = pred.argmax(dim=2).cpu().numpy()
         # pred_argmax: (batch_size, seq_len)
-        # バッチ内の i 番目の出力について
-        for i in range(pred_argmax.shape[0]):
+
+        # バッチ内の各出力について
+        for batch in pred_argmax:
+            # print(f"batch shape: {batch.shape}")
             pred_str = ""
             # i 番目の出力における j 番目の文字について
-            for j in range(pred_argmax.shape[1]):
+            for j in range(batch.shape[0]):
                 # blank トークンは無視
-                if pred_argmax[i, j] == blank_token_id:
+                if batch[j] == blank_token_id:
                     continue
                 # 連続する同じ文字は無視
-                if j > 0 and pred_argmax[i, j] == pred_argmax[i, j - 1]:
+                if j > 0 and batch[j] == batch[j - 1]:
                     continue
-                pred_str += id_to_vocab_dict[pred_argmax[i, j]]
+                pred_str += id_to_vocab_dict[batch[j]]
             print(pred_str)
 
     training_data = []
@@ -306,7 +309,7 @@ def train_loop(
 
         # save model
         model_dir.mkdir(exist_ok=True)
-        torch.save(model.state_dict(), model_dir / f"lstm1_epoch{epoch}.pth")
+        torch.save(model.state_dict(), model_dir / f"lstm2_epoch{epoch}.pth")
 
 
 train_loop(
