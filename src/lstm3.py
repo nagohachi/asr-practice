@@ -196,7 +196,7 @@ print(rnn)
 
 
 loss_fn = nn.CTCLoss(reduction="mean", blank=y_padding_value)
-optimizer = torch.optim.Adam(rnn.parameters(), lr=1e-5)
+optimizer = torch.optim.Adam(rnn.parameters(), lr=5e-4)
 
 
 train_loss_list: list[float] = []
