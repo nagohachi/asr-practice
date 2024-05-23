@@ -188,7 +188,7 @@ rnn = LSTMModel(
 print(rnn)
 
 
-loss_fn = nn.CTCLoss(reduction="mean")
+loss_fn = nn.CTCLoss(reduction="mean", blank=y_padding_value)
 optimizer = torch.optim.Adam(rnn.parameters(), lr=1e-5)
 
 
