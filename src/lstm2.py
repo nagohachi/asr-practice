@@ -115,10 +115,10 @@ class CSJTrainData:
 # num_mel_bins
 input_features_size = 80
 # hidden_features_size = 320
-hidden_features_size = len(vocab) // 2
+hidden_features_size = 320
 # vocab_size
 output_features_size = len(vocab)
-bidirectional = False
+bidirectional = True
 n_layers = 1
 batch_size = 10
 
@@ -136,7 +136,6 @@ class LSTMModel(nn.Module):
         bidirectional: bool = False,
     ) -> None:
         super().__init__()
-        self.bidirectional = bidirectional
         self.rnn = nn.LSTM(
             input_size=n_input_features,
             hidden_size=n_hidden_features,
@@ -163,11 +162,7 @@ class LSTMModel(nn.Module):
         x_tensor = self.fc(x_tensor)
         # x_tensor: (batch_size, seq_len, output_features)
 
-        if self.bidirectional:
-            x1, x2 = torch.chunk(input=x_tensor, chunks=2, dim=2)
-            x_tensor = (x1 + x2) / 2
-
-        # softmax
+        # log_softmax
         x_tensor = x_tensor.log_softmax(dim=2)
 
         # batch_first の状態から、CTCLoss に入力できるように変形する
