@@ -38,6 +38,9 @@ sos_token_id = vocab_to_id_dict["<sos>"]
 eos_token_id = vocab_to_id_dict["<eos>"]
 blank_token_id = vocab_to_id_dict["<blank>"]
 
+x_padding_value = 0
+y_padding_value = blank_token_id
+
 
 class CSJTrainData:
     def __init__(
