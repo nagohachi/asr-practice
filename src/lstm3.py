@@ -184,7 +184,7 @@ dataset = CSJTrainData(train_df=df, batch_size=batch_size, use_samples=10000)
 rnn = LSTMModel(
     n_input_features=input_features_size,
     n_output_features=output_features_size,
-    n_hidden_features=output_features_size,
+    n_hidden_features=hidden_features_size,
     n_layers=n_layers,
     bidirectional=bidirectional,
 ).to("cuda")
