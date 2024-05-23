@@ -157,7 +157,7 @@ class LSTMModel(nn.Module):
         # x: (batch_size, seq_len, input_features)
         x, _ = self.rnn(x)
         x_tensor, _ = nn.utils.rnn.pad_packed_sequence(
-            x, batch_first=True, padding_value=blank_token_id
+            x, batch_first=True, padding_value=x_padding_value
         )
         # x_tensor: (batch_size, seq_len, hidden_features)
 
