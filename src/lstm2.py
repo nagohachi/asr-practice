@@ -255,10 +255,10 @@ def train_loop(
         for batch, (X, y, X_length, y_length) in enumerate(tqdm(training_data)):
             # X, y を pad する
             X_pad = nn.utils.rnn.pad_sequence(
-                X, batch_first=True, padding_value=blank_token_id
+                X, batch_first=True, padding_value=x_padding_value
             )
             y_pad = nn.utils.rnn.pad_sequence(
-                y, batch_first=True, padding_value=blank_token_id
+                y, batch_first=True, padding_value=y_padding_value
             )
             # X を pack する
             X_packed = nn.utils.rnn.pack_padded_sequence(
