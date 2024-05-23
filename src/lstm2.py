@@ -114,7 +114,6 @@ class CSJTrainData:
 # ## LSTMModel のパラメータ
 # num_mel_bins
 input_features_size = 80
-# hidden_features_size = 320
 hidden_features_size = 320
 # vocab_size
 output_features_size = len(vocab)
