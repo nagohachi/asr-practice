@@ -223,6 +223,11 @@ def train_loop(
         # batch_first の状態に戻す
         pred = pred.permute(1, 0, 2)
         # pred: (batch_size, seq_len, vocab_size)
+
+        # vocab_size の最後の次元は blank なので、最後の次元をカット
+        pred = pred[:, :, :-1]
+
+        # 最も確率の高いトークンを取得
         pred_argmax = pred.argmax(dim=2).cpu().numpy()
         # pred_argmax: (batch_size, seq_len)
         # バッチ内の i 番目の出力について
