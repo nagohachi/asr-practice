@@ -179,7 +179,9 @@ class LSTMModel(nn.Module):
 
 # ## Training
 
-dataset = CSJTrainData(train_df=df, batch_size=batch_size, use_samples=10000)
+dataset = CSJTrainData(
+    train_df=df, batch_size=batch_size, max_spec_len=1500, use_samples=50000
+)
 
 rnn = LSTMModel(
     n_input_features=input_features_size,
