@@ -121,7 +121,7 @@ hidden_features_size = 320
 # vocab_size
 output_features_size = len(vocab)
 bidirectional = True
-n_layers = 6
+n_layers = 3
 batch_size = 10
 
 
