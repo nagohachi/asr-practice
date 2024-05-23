@@ -277,6 +277,20 @@ def train_loop(
 
             # 試しに出力してみる
             print_decoded_pred(pred)
+            # print(f"y_pad shape: {y_pad.shape}")
+            # for batch in y_pad.cpu().numpy():
+            #     # print(f"batch shape: {batch.shape}")
+            #     y_str = ""
+            #     # i 番目の出力における j 番目の文字について
+            #     for j in range(batch.shape[0]):
+            #         # blank トークンは無視
+            #         if batch[j] == blank_token_id:
+            #             continue
+            #         # 連続する同じ文字は無視
+            #         if j > 0 and batch[j] == batch[j - 1]:
+            #             continue
+            #         y_str += id_to_vocab_dict[batch[j]]
+            #     print(y_str)
 
             loss = loss_fn(pred, y_pad, X_length, y_length)
             loss.backward()
