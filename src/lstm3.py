@@ -163,10 +163,7 @@ class LSTMModel(nn.Module):
             x, batch_first=True, padding_value=x_padding_value
         )
 
-        x1, x2 = x_tensor.chunk(2, dim=2)
-        x_tensor = (x1 + x2) / 2
-
-        # x_tensor = self.fc(x_tensor)
+        x_tensor = self.fc(x_tensor)
         # x_tensor: (batch_size, seq_len, output_features)
 
         # batch_first の状態から、CTCLoss に入力できるように変形する
