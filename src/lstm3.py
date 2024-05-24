@@ -9,6 +9,20 @@ import wandb
 from torch import nn
 from tqdm.auto import tqdm
 
+
+class CFG:
+    input_features_size = 80
+    hidden_features_size = 320
+    bidirectional = True
+    n_layers = 6
+    batch_size = 20
+    max_spec_len = 1500
+    use_samples = 200000
+    learning_rate = 5e-4
+    loss_reduction = "mean"
+    n_epochs = 10
+
+
 root_dir = Path.cwd().parent
 input_dir = root_dir / "input"
 csj_dir = input_dir / "csj"
@@ -116,13 +130,13 @@ class CSJTrainData:
 
 # ## LSTMModel のパラメータ
 # num_mel_bins
-input_features_size = 80
-hidden_features_size = 320
+input_features_size = CFG.input_features_size
+hidden_features_size = CFG.hidden_features_size
 # vocab_size
 output_features_size = len(vocab)
-bidirectional = True
-n_layers = 6
-batch_size = 20
+bidirectional = CFG.bidirectional
+n_layers = CFG.n_layers
+batch_size = CFG.batch_size
 
 
 # ## Model
@@ -180,7 +194,10 @@ class LSTMModel(nn.Module):
 # ## Training
 
 dataset = CSJTrainData(
-    train_df=df, batch_size=batch_size, max_spec_len=1500, use_samples=50000
+    train_df=df,
+    batch_size=batch_size,
+    max_spec_len=CFG.max_spec_len,
+    use_samples=CFG.use_samples,
 )
 
 rnn = LSTMModel(
@@ -194,13 +211,23 @@ rnn = LSTMModel(
 print(rnn)
 
 
-loss_fn = nn.CTCLoss(reduction="mean", blank=y_padding_value)
-optimizer = torch.optim.Adam(rnn.parameters(), lr=5e-4)
+loss_fn = nn.CTCLoss(reduction=CFG.loss_reduction, blank=y_padding_value)
+optimizer = torch.optim.Adam(rnn.parameters(), lr=CFG.learning_rate)
 
 
 train_loss_list: list[float] = []
 
-wandb.init(project="asr-practice", name="lstm3")
+# CFGオブジェクトのすべての属性を取得
+cfg_vars = vars(CFG)
+
+# JSONにシリアライズ可能な属性だけを選択
+json_friendly_cfg_vars = {
+    key: value
+    for key, value in cfg_vars.items()
+    if isinstance(value, (int, float, str, bool, list, dict, tuple, set))
+}
+
+wandb.init(project="asr-practice", name="lstm3", config=json_friendly_cfg_vars)
 
 
 def train_loop(
@@ -231,7 +258,7 @@ def train_loop(
         # pred: (batch_size, seq_len, vocab_size)
 
         # vocab_size の最後の次元は blank なので、最後の次元をカット
-        pred = pred[:, :, :-1]
+        # pred = pred[:, :, :-1]
 
         # 最も確率の高いトークンを取得
         pred_argmax = pred.argmax(dim=2).cpu().numpy()
@@ -315,7 +342,7 @@ def train_loop(
 
         # save model
         model_dir.mkdir(exist_ok=True)
-        torch.save(model.state_dict(), model_dir / f"lstm2_epoch{epoch}.pth")
+        torch.save(model.state_dict(), model_dir / f"lstm3_epoch{epoch}.pth")
 
 
 train_loop(
@@ -323,5 +350,5 @@ train_loop(
     model=rnn,
     loss_fn=loss_fn,
     optimizer=optimizer,
-    n_epochs=5,
+    n_epochs=CFG.n_epochs,
 )
